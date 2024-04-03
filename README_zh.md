@@ -1,3 +1,6 @@
+[切换到中文版本](README_zh.md) 
+
+[Switch to English Version](README.md)
 # 2048AI-Mastermind
 
 2048AI-Mastermind 是一个专门为解决2048游戏而设计的解决方案。它通过分析当前2048游戏的状态，从而推荐出最佳的下一步移动方向，帮助玩家在游戏中取得更好的成绩。
