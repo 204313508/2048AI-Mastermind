@@ -53,7 +53,13 @@ class Game2048Env(gym.Env):
 
         # Reset ready for a game
         self.reset()
-
+    def is_legal_move(self, action):
+        """Check if the given action is legal."""
+        try:
+            self.move(action, trial=True)
+            return True
+        except IllegalMove:
+            return False
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
@@ -75,7 +81,6 @@ class Game2048Env(gym.Env):
     # Implement gym interface
     def step(self, action):
         """Perform one step of the game. This involves moving and adding a new tile."""
-        logging.debug("Action {}".format(action))
         score = 0
         done = None
         info = {
@@ -89,7 +94,6 @@ class Game2048Env(gym.Env):
             done = self.isend()
             reward = float(score)
         except IllegalMove:
-            logging.debug("Illegal move")
             info['illegal_move'] = True
             done = True
             reward = self.illegal_move_reward
@@ -104,7 +108,6 @@ class Game2048Env(gym.Env):
         self.Matrix = np.zeros((self.h, self.w), int)
         self.score = 0
 
-        logging.debug("Adding tiles")
         self.add_tile()
         self.add_tile()
 
@@ -112,15 +115,28 @@ class Game2048Env(gym.Env):
 
     # Implement 2048 game
     def add_tile(self):
-        """Add a tile, probably a 2 but maybe a 4"""
-        possible_tiles = np.array([2, 4, 8, 16, 32])
-        tile_probabilities = np.array([0.6, 0.3, 0.07, 0.02, 0.01])
+        """Add a tile"""
+        if self.highest() < 32:
+            possible_tiles = np.array([2])
+            tile_probabilities = np.array([1])
+        elif self.highest() < 128:
+            possible_tiles = np.array([2, 4])
+            tile_probabilities = np.array([0.8, 0.2])
+        elif self.highest() < 256:
+            possible_tiles = np.array([2, 4])
+            tile_probabilities = np.array([0.73, 0.27])
+        elif self.highest() < 512:
+            possible_tiles = np.array([2, 4, 8, 16])
+            tile_probabilities = np.array([0.73, 0.21, 0.059, 0.001])
+        else:
+            possible_tiles = np.array([2, 4, 8, 16, 32])
+            tile_probabilities = np.array([0.73, 0.21, 0.051, 0.008, 0.001])
+
         val = self.np_random.choice(possible_tiles, 1, p=tile_probabilities)[0]
         empties = self.empties()
         assert empties.shape[0]
         empty_idx = self.np_random.choice(empties.shape[0])
         empty = empties[empty_idx]
-        logging.debug("Adding %s at %s", val, (empty[0], empty[1]))
         self.set(empty[0], empty[1], val)
 
     def get(self, x, y):
@@ -143,15 +159,15 @@ class Game2048Env(gym.Env):
         """Perform one move of the game. Shift things to one side then,
         combine. directions 0, 1, 2, 3 are up, right, down, left.
         Returns the score that [would have] got."""
-        if not trial:
-            if direction == 0:
-                logging.debug("Up")
-            elif direction == 1:
-                logging.debug("Right")
-            elif direction == 2:
-                logging.debug("Down")
-            elif direction == 3:
-                logging.debug("Left")
+        # if not trial:
+        #     if direction == 0:
+        #         logging.debug("Up")
+        #     elif direction == 1:
+        #         logging.debug("Right")
+        #     elif direction == 2:
+        #         logging.debug("Down")
+        #     elif direction == 3:
+        #         logging.debug("Left")
 
         changed = False
         move_score = 0
@@ -262,33 +278,74 @@ class Game2048Env(gym.Env):
 
 
 # 加载模型
-model = load_model("2048_qlearning_model.h5")
+model = load_model("trained_model.h5")
 
 # 2048 游戏环境
 env = Game2048Env()
 env.reset()
 
-def predict_move(board):
-    state = np.array(board, dtype=np.float32).flatten().reshape((1, 4, 4, 16))  # 与训练代码中的输入形状保持一致
-    action = np.argmax(model.predict(state))
-    return action
+
+def predict_move(state):
+    # 获取当前状态下各个动作的预测值
+    action_values = model.predict(state.reshape((1, -1)), verbose=0)[0]
+
+    # 找到具有最大预测值的动作
+    legal_actions = [action for action in range(4) if env.is_legal_move(action)]
+    legal_action_values = {action: value for action, value in enumerate(action_values) if action in legal_actions}
+
+    # 如果只剩一个位置，选择能够继续游戏且预测值更高的移动方向
+    if len(env.empties()) == 1 or len(env.empties()) == 0:
+        print("empty:",env.Matrix)
+        max_value = -float('inf')
+        best_action = None
+        for action, value in legal_action_values.items():
+            # 模拟执行动作并评估预测值
+            temp_env = Game2048Env()
+            temp_env.Matrix = np.copy(env.Matrix)
+            _, _, done, _ = temp_env.step(action)
+            if not done:
+                if value > max_value:
+                    max_value = value
+                    best_action = action
+        if best_action is not None:
+            return best_action
+
+    # 否则，选择具有最大预测值的动作
+    predicted_action = max(legal_action_values, key=legal_action_values.get)
+    return predicted_action
+
+
 
 if __name__ == "__main__":
-    board = env.reset()
+    total_scores = []  # 用于储存每一次游戏的分数
+    games_ended_max_tile = 0  # 记录因为达到最大方块而结束的游戏次数
+    highest_scores_count = {}  # 记录每个最高分数出现的次数
 
-    while True:
-        # 输入当前 4x4 格子的数量
-        board_input = list(map(int, input("请输入当前 4x4 格子的数量（空格分隔）：").split()))
-        board = np.array(board_input).reshape((4, 4))
+    for _ in range(100):  # 玩游戏100次
+        board = env.reset()  # 重置环境
+        done = False
+        while not done:
+            current_state = stack(env.Matrix)  # 获取当前状态
+            action = predict_move(current_state)  # 预测最佳动作
+            _, reward, done, info = env.step(action)  # 执行动作，获取结果
+            if done:
+                print(env.Matrix,info['highest'])
+                total_scores.append(env.score)  # 记录分数
+                if info['highest'] >= env.max_tile:  # 检查是否因为达到最大方块而结束
+                    games_ended_max_tile += 1
+                highest_score = info['highest']
+                if highest_score in highest_scores_count:
+                    highest_scores_count[highest_score] += 1
+                else:
+                    highest_scores_count[highest_score] = 1
 
-        action = predict_move(board)
+    print("每个最高分数出现的次数：")
+    for score, count in highest_scores_count.items():
+        print(f"{score} 分出现了 {count} 次")
 
-        print("下一步最佳移动方案：")
-        if action == 0:
-            print("向上移动")
-        elif action == 1:
-            print("向右移动")
-        elif action == 2:
-            print("向下移动")
-        elif action == 3:
-            print("向左移动")
+    print(f"因为达到最大方块而结束的游戏次数：{games_ended_max_tile}")
+
+
+
+
+
