@@ -1,8 +1,9 @@
-import tkinter as tk
+import math
+import re
 import random
 from collections import deque
 from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 import tensorflow as tf
 import gym
@@ -10,6 +11,8 @@ from gym import spaces
 from gym.utils import seeding
 import numpy as np
 import itertools
+import os
+
 
 def pairwise(iterable):
     "s -> (s0,s1), (s1,s2), (s2, s3), ..."
@@ -17,15 +20,7 @@ def pairwise(iterable):
     next(b, None)
     return zip(a, b)
 
-class IllegalMove(Exception):
-    pass
 
-def stack(flat, layers=16):
-    """Convert an [4, 4] representation into [4, 4, layers] with one layers for each value."""
-    representation = 2 ** (np.arange(layers, dtype=int) + 1)
-    layered = np.repeat(flat[:,:,np.newaxis], layers, axis=-1)
-    layered = np.where(layered == representation, 1, 0)
-    return layered
 class IllegalMove(Exception):
     pass
 
@@ -106,8 +101,21 @@ class Game2048Env(gym.Env):
         return stack(self.Matrix)
 
     def add_tile(self):
-        possible_tiles = np.array([2, 4, 8, 16, 32])
-        tile_probabilities = np.array([0.6, 0.3, 0.07, 0.02, 0.01])
+        if self.highest() < 32:
+            possible_tiles = np.array([2])
+            tile_probabilities = np.array([1])
+        elif self.highest() < 128:
+            possible_tiles = np.array([2, 4])
+            tile_probabilities = np.array([0.9, 0.1])
+        elif self.highest() < 256:
+            possible_tiles = np.array([2, 4])
+            tile_probabilities = np.array([0.8, 0.2])
+        elif self.highest() < 512:
+            possible_tiles = np.array([2, 4, 8, 16])
+            tile_probabilities = np.array([0.73, 0.21, 0.059, 0.001])
+        else:
+            possible_tiles = np.array([2, 4, 8, 16, 32])
+            tile_probabilities = np.array([0.73, 0.21, 0.051, 0.008, 0.001])
         val = self.np_random.choice(possible_tiles, 1, p=tile_probabilities)[0]
         empties = self.empties()
         assert empties.shape[0]
@@ -215,118 +223,88 @@ class Game2048Env(gym.Env):
         self.Matrix = new_board
 
 
-class GameUI(tk.Tk):
-    def __init__(self, env, model):
-        super().__init__()
-        self.env = env
-        self.model = model
-        self.title("2048 Game")
-        self.geometry("400x400")
+def parse_array(array_str):
+    # 使用正则表达式提取数组中的数字部分
+    numbers = re.findall(r'\d+', array_str)
+    # 将提取的数字转换为整数
+    return [int(num) for num in numbers]
+def train_model_from_file():
+    # Check if the replay_memory.txt file exists, if not, create it
+    if not os.path.exists("replay_memory.txt"):
+        print("Error: replay_memory.txt file does not exist.")
+        return
 
-        self.grid_frame = tk.Frame(self)
-        self.grid_frame.pack()
-        self.create_grid()
 
-        self.button_frame = tk.Frame(self)
-        self.button_frame.pack()
-        self.create_buttons()
+    LEARNING_RATE = 0.01
+    DISCOUNT_FACTOR = 0.95
+    STATE_SIZE = np.product(env.observation_space.shape)
+    ACTION_SIZE = env.action_space.n
+    # print(STATE_SIZE)
+    REPLAY_MEMORY_SIZE = 500000
+    BATCH_SIZE = 2048
+    replay_memory = deque(maxlen=REPLAY_MEMORY_SIZE)
 
-        self.step_count = 0
+    model = Sequential()
+    model.add(Dense(256, input_shape=(STATE_SIZE,), activation='relu'))  # 增加神经元数量
+    model.add(Dense(256, activation='relu'))  # 增加更多层和神经元
+    model.add(Dropout(0.2))  # 添加Dropout层以减少过拟合
+    model.add(Dense(256, activation='relu'))  # 继续调整层和神经元
+    model.add(Dense(256, activation='relu'))  # 继续调整层和神经元
+    model.add(Dense(ACTION_SIZE, activation='linear'))
+    model.compile(loss='mse', optimizer=Adam(lr=LEARNING_RATE), metrics=['mae'])  # 添加metrics以便更好地观察训练过程
+    model=load_model("trained_model.h5")
+    # Load experiences from text file
+    # Load experiences from text file
+    with open("replay_memory.txt", "r") as file:
+        lines = ""
+        t = 0
+        for line in file:
+            t += 1
+            lines += line.strip()
+            if t % 7==0:  # Each experience contains 7 lines
+                # print(t)
+                state_str, action, reward, next_state_str, done_str = lines.split(",")
+                # print(state_str)
+                state = stack(np.array(parse_array(state_str), dtype=int).reshape(4, 4))
+                action = int(action)
+                reward = 2048.0 + float(reward)
+                next_state = stack(np.array(parse_array(next_state_str), dtype=int).reshape(4, 4))
+                done = bool(done_str)
+                experience = (state, action, reward, next_state, done)
+                replay_memory.append(experience)
+                lines = "" # Reset lines for the next experience
+    print("len(replay_memory):",len(replay_memory))
+    EPISODES = math.ceil(len(replay_memory) * (math.log(len(replay_memory)) + 0.57721) / BATCH_SIZE)
+    print("EPISODES",EPISODES)
+    if len(replay_memory) >= BATCH_SIZE:
+        for i in range(EPISODES+50):
+            print("i:",i)
+            states, targets = get_training_batch(replay_memory, model, BATCH_SIZE, STATE_SIZE, ACTION_SIZE, DISCOUNT_FACTOR)
+            model.fit(states, targets, epochs=1, verbose=0)
+            tf.keras.backend.clear_session()
+        model.save("trained_model.h5")
+        return model
 
-    def create_grid(self):
-        self.grid_cells = []
-        for i in range(self.env.size):
-            row = []
-            for j in range(self.env.size):
-                cell = tk.Label(self.grid_frame, text='', font=('Helvetica', 16, 'bold'), width=4, height=2,
-                                relief='ridge')
-                cell.grid(row=i, column=j, padx=5, pady=5)
-                row.append(cell)
-            self.grid_cells.append(row)
-        self.update_grid()
 
-    def update_grid(self):
-        for i in range(self.env.size):
-            for j in range(self.env.size):
-                value = self.env.get(i, j)
-                if value == 0:
-                    self.grid_cells[i][j].configure(text='', bg='gray')
-                else:
-                    self.grid_cells[i][j].configure(text=str(value), bg='white')
+def get_training_batch(replay_memory, model, BATCH_SIZE, STATE_SIZE, ACTION_SIZE, DISCOUNT_FACTOR):
+    batch = random.sample(replay_memory, BATCH_SIZE)
+    states, targets = np.zeros((BATCH_SIZE, STATE_SIZE)), np.zeros((BATCH_SIZE, ACTION_SIZE))
 
-    def create_buttons(self):
-        buttons = ['Up', 'Right', 'Down', 'Left']
-        # 创建一个字典，为每个按钮指定其网格位置
-        grid_positions = {
-            'Up': (0, 1),
-            'Left': (1, 0),
-            'Down': (1, 1),
-            'Right': (1, 2)
-        }
+    for i, (state, action, reward, next_state, done) in enumerate(batch):
+        target = reward
+        if not done:
+            target = reward + DISCOUNT_FACTOR * np.amax(model.predict(next_state.reshape((1, STATE_SIZE)),verbose=0))
 
-        for button_text in buttons:
-            button = tk.Button(self.button_frame, text=button_text, command=lambda b=button_text: self.move(b))
-            # 使用grid而不是pack来布局按钮
-            row, col = grid_positions[button_text]
-            button.grid(row=row, column=col, padx=10, pady=10)
+        # target_vector = model.predict(state.reshape((1, STATE_SIZE)), verbose=0)
+        target_vector = model.predict(state.reshape((1, -1)),verbose=0)
+        target_vector[0][action] = target
+        states[i] = state.flatten()
+        targets[i] = target_vector
 
-    def move(self, direction):
-        actions = {'Up': 0, 'Right': 1, 'Down': 2, 'Left': 3}
-        action = actions[direction]
-        if self.env.is_legal_move(action):
-            _, reward, done, _ = self.env.step(action)
-            self.update_grid()
-            self.train_model()
-            if done:
-                self.env.reset()
-                self.update_grid()
-            self.step_count += 1
-            if self.step_count % 100 == 0:
-                self.model.save(f"2048_checkpoint-{self.step_count}.h5")
-
-    def train_model(self):
-        if len(replay_memory) >= BATCH_SIZE:
-            states, targets = self.get_training_batch()
-            self.model.fit(states, targets, epochs=1, verbose=0)
-
-    def get_training_batch(self):
-        batch = random.sample(replay_memory, BATCH_SIZE)
-        states, targets = np.zeros((BATCH_SIZE, STATE_SIZE)), np.zeros((BATCH_SIZE, ACTION_SIZE))
-
-        for i, (state, action, reward, next_state, done) in enumerate(batch):
-            target = reward
-            if not done:
-                target = reward + DISCOUNT_FACTOR * np.amax(
-                    self.model.predict(next_state.reshape((1, STATE_SIZE)), verbose=0))
-
-            target_vector = self.model.predict(state.reshape((1, -1)), verbose=0)
-            target_vector[0][action] = target
-            states[i] = state.flatten()
-            targets[i] = target_vector
-
-        return states, targets
+    return states, targets
 
 
 if __name__ == "__main__":
     env = Game2048Env()
+    trained_model = train_model_from_file()
 
-    EPISODES = 5000
-    STEPS = 1000
-    LEARNING_RATE = 0.01
-    DISCOUNT_FACTOR = 0.95
-    EPSILON = 1.0
-    EPSILON_DECAY = 0.995
-    MIN_EPSILON = 0.01
-    STATE_SIZE = np.product(env.observation_space.shape)
-    ACTION_SIZE = env.action_space.n
-    REPLAY_MEMORY_SIZE = 1000
-    BATCH_SIZE = 64
-    replay_memory = deque(maxlen=REPLAY_MEMORY_SIZE)
-    model = Sequential()
-    model.add(Dense(128, input_shape=(STATE_SIZE,), activation='relu'))
-    model.add(Dense(128, activation='relu'))
-    model.add(Dense(ACTION_SIZE, activation='linear'))
-    model.compile(loss='mse', optimizer=Adam(lr=LEARNING_RATE))
-    model = load_model("2048_human.h5")
-    game_ui = GameUI(env, model)
-    game_ui.mainloop()
