@@ -1,53 +1,66 @@
-[切换到中文版本](README_zh.md) 
-
-[Switch to English Version](README.md)
-
+[Switch to Chinese Version](README_zh.md)  
+[切换到中文版本](README_zh.md)
 
 # 2048AI-Mastermind
 
-2048AI-Mastermind is a solution specifically designed to tackle the 2048 game. It analyzes the current state of the 2048 game to recommend the best next move direction, helping players achieve better scores in the game.
+2048AI-Mastermind is a solution designed specifically for solving the 2048 game. It analyzes the current state of the 2048 game to recommend the best next move direction, helping players achieve better scores in the game.
 
 ## Installation
 
-1. Make sure you have Python 3.11 installed.
+1. Ensure you have Python version 3.11 installed.
 2. Install the required dependencies using the following command:
-   ```
+   ```bash
    pip install -r requirements.txt
    ```
 
 ## Usage
-### Playing the Game to Gain Experience
-Execute the following command to play the 2048 game and gain experience:
 
-```
-python play_ui.py
-```
+### Running the Interface
 
-We provide a graphical game interface where you can play by clicking interface buttons or using the "up, down, left, right" keys on your keyboard:  
-![Game Interface Example](play_ui.png)
-
-### Training the Model
-
-To train the model, execute the following command:
-```
-python train_ui.py
-```
-
-We provide a graphical training interface:
-![Training Interface Example](train_ui.png)
-
-### Resuming Training from a Checkpoint
-
-If you need to resume training from a checkpoint, add the following code inside the `train_model_from_file` function in the `train_ui.py` file:
+To start the `2048AI-Mastermind` interface, execute the following command:
 ```python
-model = load_model(model_checkpoint_path)
+python puzzle.py
 ```
 
-### Performing Inference
+This will open a window displaying the 2048 game interface. In this interface, you can control the game using the arrow keys on your keyboard or the corresponding shortcuts.
 
-To perform inference testing, execute the following command:
-```
-python predict.py
-```
+Here is a screenshot example of the game interface:  
+![Interface Screenshot](./demo.png)
 
-By following these steps, you can easily install, train the model, and use this solution to optimize your performance in the 2048 game.
+### Controlling the Game
+
+- **Click Input**: You can input numbers by clicking on the tiles.
+- **Arrow Keys**: The `Up, Down, Left, Right` keys correspond to moving up, down, left, and right, respectively.
+
+### Predicting the Next Move
+
+You can also click the "Predict Next Move" button on the interface to let the AI suggest the best move direction. This will display the best move direction recommended by the AI based on the current game state.
+
+---
+
+### Adjusting Parameters
+
+- **Simulation Time**: Adjust the simulation time to optimize the AI's decision-making accuracy. The longer the simulation time, the more simulations the AI performs, leading to more accurate decisions.
+- **Exploration Factor**: Adjust the exploration factor to control the AI's level of exploration. A larger exploration factor makes the AI more inclined to explore unknown paths; conversely, a smaller factor makes it lean towards choosing the currently known best path.
+
+#### Checking Parameter Descriptions
+
+- Click on "Help" -> "Parameter Descriptions" in the menu bar to view detailed explanations about simulation time and exploration factors.
+
+### Parameter Effect Explanation
+
+The following are the probabilities of the AI achieving different goals with a simulation time of 0.5 seconds:
+
+| Target Score    | Achievement Probability |
+|----------------|-------------------------|
+| 512 and above   | 97%                     |
+| 1024 and above  | 93%                     |
+| 2048           | 60%                     |
+
+#### Exiting the Game
+
+- You can exit the game by pressing the `Esc` key or clicking the close button in the upper right corner of the window.
+
+## Reference Project
+
+This project references the following open-source project: [https://github.com/TwoPoint0200/2048-Python-AI](https://github.com/TwoPoint0200/2048-Python-AI)
