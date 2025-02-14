@@ -1,6 +1,6 @@
 import constants as c
 import binary_puzzle as bp
-from visual import GameVisual
+from visual2 import GameVisual
 from mcts_ai import MCTSBoard
 from tkinter import Button, Scale, Label, Menu, messagebox
 
@@ -49,7 +49,7 @@ class GameGrid(GameVisual):
         self.simulation_time_label = Label(self, text="模拟时间 (秒)", bg="#bbada0", fg="#776e65", font=("Verdana", 12, "bold"))
         self.simulation_time_label.grid(row=c.GRID_LEN + 1, column=0, columnspan=2, sticky="nsew")
         self.simulation_time_scale = Scale(self, from_=0.1, to=5.0, resolution=0.1, orient="horizontal", command=self.update_simulation_time, bg="#bbada0", fg="#776e65", highlightthickness=0, sliderrelief="flat")
-        self.simulation_time_scale.set(1.0)
+        self.simulation_time_scale.set(0.5)
         self.simulation_time_scale.grid(row=c.GRID_LEN + 2, column=0, columnspan=2, sticky="nsew")
 
         self.exploration_label = Label(self, text="探索因子", bg="#bbada0", fg="#776e65", font=("Verdana", 12, "bold"))
@@ -65,6 +65,8 @@ class GameGrid(GameVisual):
         self.file_menu = Menu(self.menu_bar, tearoff=0)
         self.file_menu.add_command(label="关于", command=self.show_about)
         self.file_menu.add_command(label="参数说明", command=self.show_parameters_info)
+        # 添加操作说明命令
+        self.file_menu.add_command(label="操作说明", command=self.show_operation_instructions)
         self.menu_bar.add_cascade(label="帮助", menu=self.file_menu)
 
         self.update_grid_cells()
@@ -104,8 +106,12 @@ class GameGrid(GameVisual):
         messagebox.showinfo("关于", about_text)
 
     def show_parameters_info(self):
-        parameters_info = ("模拟时间：单位为秒。模拟时间越长，算法进行的模拟次数越多，决策越准确。\n"
-                           "探索因子：范围在0到1之间。探索因子越大，随机性越大，算法越倾向于探索未知的路径，而不是选择当前已知的最佳路径。该项过小算法可能会陷入局部最优解，而过大可能会降低算法的决策准确性。")
+        parameters_info = ("模拟时间：单位为秒。模拟时间越长，算法进行的模拟次数越多，决策越准确。推荐值：0.5秒。\n"
+                           "探索因子：范围在0到1之间。探索因子越大，随机性越大，算法越倾向于探索未知的路径，而不是选择当前已知的最佳路径。该项过小算法可能会陷入局部最优解，而过大可能会降低算法的决策准确性。推荐值：0.1。")
         messagebox.showinfo("参数说明", parameters_info)
+
+    def show_operation_instructions(self):
+        operation_instructions = "点击键盘上的上下左右键即可移动"
+        messagebox.showinfo("操作说明", operation_instructions)
 
 game_grid = GameGrid()
